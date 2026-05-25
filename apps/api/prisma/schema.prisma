@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model DeploymentRecord {
+  id                        String    @id @default(uuid())
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  repo                      String
+  service                   String
+  commitSha                 String    @map("commit_sha")
+  baseSha                   String    @map("base_sha")
+  deploymentId              String    @map("deployment_id")
+  commitMessage             String?   @map("commit_message")
+  triggeredBy               String?   @map("triggered_by")
+
+  outcome                   Outcome
+  deployStartedAt           DateTime? @map("deploy_started_at")
+  deployCompletedAt         DateTime? @map("deploy_completed_at")
+
+  riskScore                 RiskScore? @map("risk_score")
+  blastRadius               Json?      @map("blast_radius")
+  baselineMetrics           Json?      @map("baseline_metrics")
+  peakMetrics               Json?      @map("peak_metrics")
+
+  anomalyDetected           Boolean   @default(false) @map("anomaly_detected")
+  anomalyType               String?   @map("anomaly_type")
+  rootCauseAnalysis         Json?     @map("root_cause_analysis")
+  rollbackExecuted          Boolean   @default(false) @map("rollback_executed")
+
+  policyEvaluation          Json?     @map("policy_evaluation")
+  reasoningChain            Json      @default("[]") @map("reasoning_chain")
+
+  steadyStateConfirmedAt    DateTime? @map("steady_state_confirmed_at")
+
+  @@index([service])
+  @@index([commitSha])
+  @@index([outcome])
+  @@index([createdAt])
+  @@map("deployment_records")
+}
+
+model ServiceRiskProfile {
+  id              String    @id @default(uuid())
+  service         String
+  changeCategory  String    @map("change_category")
+  totalDeploys    Int       @default(0) @map("total_deploys")
+  incidentDeploys Int       @default(0) @map("incident_deploys")
+  incidentRate    Float     @default(0.0) @map("incident_rate")
+  lastIncidentAt  DateTime? @map("last_incident_at")
+  lastUpdatedAt   DateTime  @default(now()) @map("last_updated_at")
+  incidentsSummary Json     @default("[]") @map("incidents_summary")
+
+  @@unique([service, changeCategory])
+  @@map("service_risk_profiles")
+}
+
+enum Outcome {
+  approved
+  rolled_back
+  paused
+  blocked_by_policy
+}
+
+enum RiskScore {
+  low
+  medium
+  high
+  critical
+}
