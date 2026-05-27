@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DeploymentSession } from '@dynasupz/types';
+import { DeploymentSession, BlastRadiusResult } from '@dynasupz/types';
 import { DynatraceService } from '../dynatrace/dynatrace.service';
+import { GeminiService } from '../gemini/gemini.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class SkillsService {
 
   constructor(
     private readonly dynatrace: DynatraceService,
+    private readonly gemini: GeminiService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -86,7 +88,7 @@ export class SkillsService {
     });
     return {
       risk_profiles: profiles.reduce(
-        (acc, p) => ({
+        (acc: Record<string, unknown>, p: { changeCategory: string; incidentRate: number; totalDeploys: number; incidentsSummary: unknown }) => ({
           ...acc,
           [p.changeCategory]: {
             incident_rate: p.incidentRate,
@@ -99,17 +101,41 @@ export class SkillsService {
     };
   }
 
-  // ─── S3 (stub — Gemini-driven inside agent loop) ──────────────────────────
+  // ─── S3 ───────────────────────────────────────────────────────────────────
 
   private async scoreBlastRadius(args: Record<string, unknown>, session: DeploymentSession) {
-    // Gemini produces the actual score via its reasoning — this skill
-    // assembles the context. For the MVP, return structured input for the agent.
-    return {
-      ready_for_scoring: true,
-      topology: args.topology,
-      diff_analysis: args.diff_analysis,
-      historical_incidents: args.historical_incidents,
-    };
+    const systemPrompt = `You are a senior SRE evaluating deployment risk. You will receive:
+1. A service dependency graph
+2. Analysis of what code changed
+3. Historical incident data for similar changes in this system
+
+Your job is to produce a JSON object with exactly these fields:
+- risk_score: "low" | "medium" | "high" | "critical"
+- risk_reasoning: string (2-3 sentences explaining the score)
+- impact_map: object mapping each downstream service name to "none" | "low" | "medium" | "high"
+- risk_factors: string[] (specific reasons this deploy is risky)
+
+Rules:
+- A DB migration that has caused incidents before is always at least "high"
+- More than 3 downstream services in blast radius adds one level of severity
+- No historical incidents + only config/logic changes = "low"
+- Output valid JSON only. No markdown, no explanation outside the JSON.`;
+
+    const userMessage = `Service Dependency Graph:
+${JSON.stringify(args.topology ?? session.topology, null, 2)}
+
+Code Change Analysis:
+${JSON.stringify(args.diff_analysis ?? session.diff_analysis, null, 2)}
+
+Historical Incident Data:
+${JSON.stringify(args.historical_incidents ?? {}, null, 2)}
+
+Score the blast radius and risk for this deployment.`;
+
+    const result = await this.gemini.generateJSON<BlastRadiusResult>(systemPrompt, userMessage);
+    session.blast_radius = result;
+    session.state = 'RISK_SCORED';
+    return result;
   }
 
   // ─── S5 ───────────────────────────────────────────────────────────────────

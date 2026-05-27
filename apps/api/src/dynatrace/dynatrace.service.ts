@@ -207,9 +207,31 @@ export class DynatraceService {
   }
 
   private parseMetrics(raw: Record<string, unknown>): ServiceMetrics {
-    // Parse Dynatrace v2 metrics response format
-    // In production this extracts from the resolution timeseries
-    return { p50_ms: 0, p99_ms: 0, error_rate_pct: 0, rps: 0, ...raw as Partial<ServiceMetrics> };
+    const result = raw as {
+      result?: Array<{
+        metricId: string;
+        data: Array<{ values: (number | null)[] }>;
+      }>;
+    };
+
+    const extract = (metricId: string): number => {
+      const series = result.result?.find((r) => r.metricId.startsWith(metricId));
+      if (!series) return 0;
+      const values = series.data.flatMap((d) => d.values).filter((v): v is number => v !== null);
+      if (values.length === 0) return 0;
+      return values.reduce((a, b) => a + b, 0) / values.length;
+    };
+
+    // Dynatrace response time is in microseconds → convert to ms
+    const p50_us = extract('builtin:service.response.time:percentile(50)');
+    const p99_us = extract('builtin:service.response.time:percentile(99)');
+
+    return {
+      p50_ms: Math.round(p50_us / 1000),
+      p99_ms: Math.round(p99_us / 1000),
+      error_rate_pct: parseFloat(extract('builtin:service.errors.total.rate').toFixed(3)),
+      rps: Math.round(extract('builtin:service.requestCount.rate')),
+    };
   }
 
   private emptyTopology(serviceId: string): TopologyResult {

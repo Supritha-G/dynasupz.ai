@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { VertexAI, FunctionDeclaration, Tool } from '@google-cloud/vertexai';
+import { Tool } from '@google-cloud/vertexai';
 import { randomUUID } from 'crypto';
+import { GeminiService } from '../gemini/gemini.service';
 import {
   DeploymentSession,
   DeploymentState,
@@ -31,22 +32,12 @@ export class AgentService {
   constructor(
     private readonly config: ConfigService,
     private readonly skills: SkillsService,
+    private readonly gemini: GeminiService,
   ) {
-    const vertexAI = new VertexAI({
-      project: this.config.getOrThrow('GCP_PROJECT_ID'),
-      location: this.config.get('GCP_LOCATION', 'us-central1'),
-    });
-
-    this.model = vertexAI.getGenerativeModel({
-      model: 'gemini-2.5-pro',
-      generationConfig: {
-        temperature: 0.1,
-        topP: 0.8,
-        maxOutputTokens: 8192,
-      },
-      systemInstruction: SYSTEM_PROMPT,
-      tools: [{ functionDeclarations: SKILL_DECLARATIONS } as Tool],
-    });
+    this.model = this.gemini.getModel(
+      SYSTEM_PROMPT,
+      [{ functionDeclarations: SKILL_DECLARATIONS } as Tool],
+    );
   }
 
   createSession(dto: CreateDeploymentDto): DeploymentSession {
