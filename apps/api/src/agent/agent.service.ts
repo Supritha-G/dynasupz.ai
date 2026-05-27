@@ -114,7 +114,7 @@ export class AgentService {
           });
 
           return {
-            functionResponse: { name, response: result },
+            functionResponse: { name, response: (result ?? {}) as object },
           };
         }),
       );
